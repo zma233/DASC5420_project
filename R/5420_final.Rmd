@@ -1,0 +1,609 @@
+---
+title: "5420_project"
+author: "Zijun Ma_T00711782"
+date: "2023-04-04"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# load the packages
+pkg_list <- c("tidyverse","MASS", "dplyr", "caret","ModelMetrics",
+              "ggplot2", "corrplot","glmnet","corrplot","RColorBrewer",
+              "gridExtra","class",
+              "readxl","knitr","ipred","rpart","vip","ranger","gridExtra") 
+
+
+# Install packages if needed
+for (pkg in pkg_list)
+{
+  # Try loading the library.
+  if ( ! library(pkg, logical.return=TRUE, character.only=TRUE) )
+    {
+         # If the library cannot be loaded, install it; then load.
+        install.packages(pkg)
+        library(pkg, character.only=TRUE)
+  }
+}
+
+```
+# I. Loading Data
+```{r}
+# df <- read.csv("~/Desktop/5420project/SaYoPillow.csv")
+df <- read.csv("~/Desktop/5420project/used_device_data.csv")
+orign.df <- df
+```
+
+# II. Missing Data
+```{r}
+# deal with missing value
+# checking missing data
+sum(is.na(df))
+df <- na.omit(df)
+
+str(df)
+df$normalized_new_price <- NULL
+```
+
+\newpage
+# III.EDA
+## EDA for Numerical Variables.
+```{r}
+par(mfrow = c(1,1))
+num_names <- c("screen_size","rear_camera_mp","front_camera_mp",
+               "internal_memory","ram", "battery","weight","release_year","days_used","normalized_used_price")
+df.num <- df[,num_names]
+
+cor_matrix <- cor(df.num)
+corrplot(cor_matrix,col = brewer.pal(n=8, name="RdYlBu"))
+
+```
+From the correlation plot, I can see there are some high correlation between battery and screen_size, weight and screen_size, release_year and days_used. Thus, I decide to remove battery, weight, and release_year from data set.
+
+```{r}
+df <- subset(df, select = -c(battery,weight,release_year) )
+df.num <- subset(df.num, select = -c(battery,weight,release_year) )
+cor_matrix <- cor(df.num)
+corrplot(cor_matrix,col = brewer.pal(n=8, name="RdYlBu"))
+```
+
+```{r}
+# checking the histogram for numerical variables
+par(mfrow = c(3,3))
+
+for(i in names(df.num)){
+hist(df[,i],main="", xlab = i)
+}
+```
+From these plots, we can see as the quality (screen_size, rear_camera_mp, front_camera_mp, internal_memory, ram) increase, the count for phones become less. And normalized_used_price follows the normal distribution.
+
+## boxplot for numerical variables(6+1)
+```{r}
+par(mfrow = c(1,1))
+
+ggplot(stack(df.num), aes(x = ind, y = values)) +
+  geom_boxplot() +
+  coord_flip()
+  
+```
+From the boxplot of our numerical variables, we can see that we have some outliers.
+
+## Bivariate Analysis
+```{r}
+device_brand.plot <- ggplot(df, aes(x = device_brand, y = normalized_used_price, fill=device_brand)) +
+  geom_boxplot() +
+  theme(legend.position="none") +
+  coord_flip()
+
+device_brand.plot
+```
+By comparing the device_brand variable with our target variable, we can see that we have some brands(Apple) that are more expensive.
+
+```{r}
+os.plot <- ggplot(df, aes(x = os, y = normalized_used_price, fill=os)) +
+  geom_boxplot() +
+  theme(legend.position="none") 
+os.plot
+```
+From the boxplot, we can see phones with iOS are more expensive.
+
+```{r}
+four.g.plot<- ggplot(df, aes(x = X4g, y = normalized_used_price, fill=X4g)) +
+  geom_boxplot() +
+  theme(legend.position="none")
+four.g.plot
+```
+From the boxplot, we can see, when phones with 4G function, the price are more expensive.
+
+```{r}
+five.g.plot <- ggplot(df, aes(x = X5g, y = normalized_used_price, fill=X5g)) +
+  geom_boxplot() +
+  theme(legend.position="none")
+five.g.plot
+```
+From the boxplot, we can see, when phones with 5G function, the price are more expensive.
+
+```{r}
+grid.arrange(os.plot, four.g.plot, five.g.plot, ncol = 2)
+```
+
+
+```{r}
+df.tep <- df
+df.tep$ram <- factor(df.tep$ram)
+
+ram.plot <- ggplot(df.tep, aes(x = ram, y = normalized_used_price, fill=ram)) +
+  geom_point() +
+  theme(legend.position="none")+
+  labs(y = "used price")
+ram.plot
+```
+From the scatter plot we can see, the greater the ram power, the more likely the cell phone have higher price.
+
+```{r}
+screen_size.plot <- ggplot(df, aes(x = screen_size, y = normalized_used_price)) +
+  geom_point()+
+  labs(y = "used price")
+screen_size.plot
+```
+From the scatter plot, we can see the larger the screen size, the higher the phones' price.
+
+```{r}
+rear_camera_mp.plot <- ggplot(df, aes(x = rear_camera_mp, 
+                                      y = normalized_used_price)) +
+  geom_point()+
+  labs(y = "used price")
+rear_camera_mp.plot
+```
+From the scatter plot, we can see the larger the rear_camera_mp, the higher the phones' price.
+
+```{r}
+front_camera_mp.plot <- ggplot(df, aes(x = front_camera_mp, y = normalized_used_price)) +
+  geom_point()+
+  labs(y = "used price")
+
+front_camera_mp.plot
+```
+
+```{r}
+internal_memory.plot <- ggplot(df, aes(x = internal_memory, y = normalized_used_price)) +
+  geom_point()+
+  labs(y = "used price")
+
+internal_memory.plot
+```
+From the previous correlation plot, we already know the correlation between internal_memory and normalized_used_price is very weak, thus from plot, we can see when internal_memory value from lower to higher, the price has the same variation.
+
+```{r}
+days_used.plot <- ggplot(df, aes(x = days_used, y = normalized_used_price)) +
+  geom_point()+
+  labs(y = "used price")
+days_used.plot
+```
+From the scatter plot, we can see the older the phones, the lower the prices.
+
+```{r}
+grid.arrange(ram.plot, screen_size.plot, rear_camera_mp.plot, 
+             front_camera_mp.plot,
+             internal_memory.plot, days_used.plot, ncol = 2)
+```
+
+
+## EDA for Categorical Variables(4)
+```{r}
+cat_names <- c("device_brand","os","X4g","X5g")
+df.cat <- df[,cat_names]
+
+ggplot(data=df.cat, aes(x=device_brand)) +
+  geom_bar() + 
+  coord_flip()
+```
+Here we can see the distribution of the cell phone brand, we can conclude that we have several cell phone brands and we have predominance in some like Samsung.
+
+```{r}
+ggplot(data=df.cat, aes(x=os)) +
+  geom_bar()
+```
+Android accounts for the majority of all OS 
+
+```{r}
+ggplot(data=df.cat, aes(x=X4g)) +
+  geom_bar()
+```
+Lots of phones have 4G function.
+
+```{r}
+ggplot(data=df.cat, aes(x=X5g)) +
+  geom_bar()
+```
+Only few phones have 5G function.
+
+# IV. data pre-processing
+```{r}
+table(df$device_brand)
+## Grouping device_brand variable
+df.2 <- df
+df.2$brand_average <- round(
+  ave(df.2$normalized_used_price, df.2$device_brand, FUN = mean), 
+  2
+)
+
+for (i in 1:nrow(df.2)) {
+  if (df.2[[i,"brand_average"]] < 3.7){
+    df.2[[i,"brand_average"]] <- "A"
+  }else if (df.2[[i,"brand_average"]]>=3.7 & df.2[[i,"brand_average"]]<4.0){
+    df.2[[i,"brand_average"]] <- "B"
+  }else if (df.2[[i,"brand_average"]]>=4.0 & df.2[[i,"brand_average"]]<4.3){
+    df.2[[i,"brand_average"]] <- "C"
+  }else if (df.2[[i,"brand_average"]]>=4.3 & df.2[[i,"brand_average"]]<4.7){
+    df.2[[i,"brand_average"]] <- "D"
+  }else if (df.2[[i,"brand_average"]]>=4.7 ){
+    df.2[[i,"brand_average"]] <- "E"
+  }
+}
+df.2$device_brand <- NULL
+names(df.2)[names(df.2)=="brand_average"] <- "device_brand"
+
+#scale df.num
+scale.df.num <- as.data.frame(cbind(normalized_used_price = 
+                                      df.2$normalized_used_price, 
+                                scale(subset(df.num, select 
+                                             = -c(normalized_used_price)))))
+
+ggplot(stack(subset(scale.df.num, select = -c(normalized_used_price))), 
+       aes(x = ind, y = values)) +
+  geom_boxplot() +
+  coord_flip() +
+  labs(title = "Boxplot of Used device dataset Numerical Variables (scaled)")
+
+
+# add the scaled columns back to the original data frame
+df_scaled <- cbind(df.2 %>% select_if(is.character), scale.df.num)
+
+## remove the outliers
+par(mfrow = c(1,1))
+# remove the outliers for all variables except response variable.
+trimmed.df = df_scaled
+for (col in names(df.num)[-c(5,7)]) {
+# Identify potential outliers
+outliers <- boxplot(trimmed.df[,col], plot = FALSE)$out
+trimmed.df <- subset(trimmed.df, !trimmed.df[,col] %in% outliers)
+}
+
+ggplot(stack(trimmed.df[,c(6:11)]), 
+       aes(x = ind, y = values)) +
+  geom_boxplot() +
+  coord_flip()+
+  labs(title = "Boxplot of Used device dataset Numerical Variables 
+       (scaled and trimmed)")
+
+df.full <- trimmed.df
+table(df.full$X5g)
+table(df.full$ram)
+df.full$X5g <- NULL
+cat_names <- c("device_brand","os","X4g")
+
+## factor categorical variable
+for (i in cat_names){
+df.full[,i] <- factor(df.full[,i])
+}
+
+# Split the data into training and testing
+set.seed(5420)
+sample <- sample(c(TRUE, FALSE), nrow(df.full), replace=TRUE,prob=c(0.80,0.20))
+# training data
+train.df <- df.full[sample, ]
+train.x <- subset(train.df, select = -c(normalized_used_price))
+train.y <- train.df$normalized_used_price
+# testing data
+test.df <- df.full[!sample, ]
+test.x <- subset(test.df, select = -c(normalized_used_price))
+test.y <- test.df$normalized_used_price
+```
+Note that the boxplot() function identifies outliers using the interquartile range (IQR) method, which defines an outlier as a value that is more than 1.5 times the IQR below the first quartile (Q1) or above the third quartile (Q3) of the data set.
+
+\newpage
+# V. Method
+## linear regression model
+```{r}
+linmod <- lm(normalized_used_price~., data = train.df)
+summary(linmod)
+```
+
+\newpage
+```{r}
+confint(linmod)
+```
+
+```{r}
+# Make predictions on the testing set
+predictions <- predict(linmod, newdata = test.df)
+# Calculate the MSE
+mse.lm <- mean((test.y - predictions)^2)
+mse.lm
+adjr2 <- summary(linmod)$adj.r.squared
+adjr2
+par(mfrow=c(2,2))
+plot(linmod)
+```
+
+\newpage
+## stepwise regression (both)
+```{r}
+set.seed(5420)
+# Train the model
+step.model <- train(normalized_used_price~., data = train.df,
+                    method = "lmStepAIC", 
+                    trControl = trainControl(method = "cv", number = 10),
+                    trace = FALSE
+                    )
+# Model accuracy
+step.model$results
+# Final model coefficients
+step.model$finalModel
+```
+
+\newpage
+```{r}
+# Summary of the model
+summary(step.model$finalModel)
+# Make predictions on the testing set
+```
+
+
+```{r}
+predictions <- predict(step.model, newdata = test.df)
+# Calculate the MSE
+mse.both <- mean((test.y - predictions)^2)
+mse.both
+adjr2.both <- summary(step.model)$adj.r.squared
+adjr2.both
+```
+
+\newpage
+## ridge regression
+```{r}
+train.X <- model.matrix(~ ., data = train.x)
+train.X <- train.X[,-1]
+test.X <- model.matrix(~ ., data = test.x)
+test.X <- test.X[,-1]
+```
+
+```{r}
+set.seed(5420)
+par(mfrow = c(1,1))
+ridge.model <- glmnet(train.X, train.y, alpha = 0)
+plot(ridge.model, xvar = "lambda")
+
+cv <- cv.glmnet(train.X, train.y, alpha=0)
+best.lambda <- cv$lambda.min
+best.lambda
+plot(cv)
+
+ridge.best <- glmnet(train.X, train.y, alpha = 0, lambda = best.lambda)
+ridge.best$beta
+
+predicted <- predict(ridge.best, newx = test.X, type = "response")
+MSE.ridge <- mean((test.y - predicted)^2)
+MSE.ridge
+```
+
+\newpage
+## lasso regression
+```{r}
+set.seed(5420)
+par(mfrow = c(1,1))
+lasso.model <- glmnet(train.X, train.y, alpha = 1)
+plot(lasso.model, xvar = "lambda")
+
+cv <- cv.glmnet(train.X, train.y, alpha=1)
+best.lambda <- cv$lambda.min
+best.lambda
+plot(cv)
+
+lasso.best <- glmnet(train.X, train.y, alpha = 1, lambda = best.lambda)
+lasso.best$beta
+
+predicted <- predict(lasso.best, newx = test.X, type = "response")
+MSE.lasso <- mean((test.y - predicted)^2)
+MSE.lasso
+```
+
+\newpage
+## elastic net regression
+```{r}
+
+alpha.seq <- seq(0,1,0.01)
+result.df <- matrix(0, nrow = length(alpha.seq), ncol = 2)
+
+for (i in 1:length(alpha.seq)) {
+  set.seed(5420)
+  cv <- cv.glmnet(train.X, train.y, alpha = alpha.seq[i])
+  lambda.index <- cv$index[1]
+  mse <- cv$lambda[lambda.index]
+  result.df[i,1] <- alpha.seq[i]
+  result.df[i,2] <- mse
+}
+alpha.best.index <- which(result.df[,2]==min(result.df[,2]))
+alpha.best <- result.df[alpha.best.index,1]
+alpha.best
+df <- as.data.frame(result.df)
+plot(df,type="l", xlab = "alpha", 
+     ylab = "MSE")
+set.seed(5420)
+cv <- cv.glmnet(train.X, train.y, alpha = alpha.best)
+plot(cv)
+lambda.best <- cv$lambda.min
+lambda.best
+
+EN.best <- glmnet(train.X,train.y,alpha=alpha.best,lambda = lambda.best)
+EN.best$beta
+predicted <- predict(EN.best, newx = test.X, type = "response")
+MSE.EN <- mean((test.y - predicted)^2)
+MSE.EN
+```
+
+\newpage
+## NN
+```{r}
+library(neuralnet)
+# Build the neural network model
+# Train the neural network
+train.DF <- model.matrix(~., data = train.df)
+train.DF <- model.matrix(~., data = train.df)[,-1]
+nn.model <- neuralnet(normalized_used_price~., data=train.DF, hidden=c(5,3))
+# plot(nn.model)
+
+# Make predictions
+test.X <- as.data.frame(test.X)
+predicted <- compute(nn.model, test.X)$net.result
+
+# Evaluate the model
+MSE.NN <- mean((predicted - test.y)^2)
+MSE.NN
+```
+
+\newpage
+# VI. Tree Based Method
+## Bagging
+```{r}
+bagg.num <- seq(100,300,20)
+MSE.bagg.df <- data.frame(numer_bag= bagg.num, OOB = rep(0,length(bagg.num)))
+## loop to find best nbagg size
+for (i in seq_len(length(bagg.num))) {
+  
+  set.seed(5420)
+  bag <- bagging(
+  formula = normalized_used_price~., 
+  data=train.df,
+  nbagg = MSE.bagg.df$numer_bag[i],   
+  coob = TRUE,
+  control = rpart.control(minsplit = 20, cp = 0)
+  )
+
+  # Compute mean squared error of predictions
+  MSE.bagg.df[i,2] <- bag$err
+}
+```
+
+```{r}
+ggplot(MSE.bagg.df, aes(x = numer_bag, y = OOB)) +
+  geom_point() +
+  labs(title = "Plot of the number of baggs v.s OBB", 
+       x = "the number of baggs", y = "OBB")
+```
+Error curve for bagging 100-300 deep, unpruned decision trees. The benefit of bagging is optimized at 300 trees although the majority of error reduction occurred within the first 220 trees.
+
+```{r}
+best.nbagg <- MSE.bagg.df[which(MSE.bagg.df$OOB==min(MSE.bagg.df$OOB)),1]
+
+bag_model <- bagging(formula = normalized_used_price ~., 
+                     data=train.df, 
+                     nbagg = best.nbagg, 
+                     coob = TRUE, 
+                     control = rpart.control(minsplit = 20, cp = 0))
+
+
+# Make predictions on test data
+predictions <- predict(bag_model, newdata = test.df)
+
+# Compute mean squared error of predictions
+MSE.bagg <- mean((test.y - predictions)^2)
+MSE.bagg
+
+#calculate variable importance
+VI <- data.frame(var=names(train.df[,-4]), imp= varImp(bag_model))
+
+#sort variable importance descending
+VI_plot <- VI[order(VI$Overall, decreasing=TRUE),]
+
+#visualize variable importance with horizontal bar plot
+barplot(VI_plot$Overall,
+        names.arg=rownames(VI_plot),
+        horiz=TRUE,
+        col='steelblue',
+        xlab='Variable Importance')
+```
+We can, however, visualize the importance of the predictor variables by calculating the total reduction in RSS (residual sum of squares) due to the split over a given predictor, averaged over all of the trees. The larger the value, the more important the predictor.
+
+We can see that days_used is the most importance predictor variable in the model while os is the least important.
+
+\newpage
+## Random Forest
+```{r}
+n_features <- length(names(test.df))-1
+
+hyper_grid <- expand.grid(
+  mtry = c(1,2,3),
+  min.node.size = c(10,20), 
+  replace = c(TRUE, FALSE),                               
+  sample.fraction = c(.5, .63, .8, 1),                       
+  OOB = NA                                               
+)
+
+# execute full cartesian grid search
+for(i in seq_len(nrow(hyper_grid))) {
+  # fit model for ith hyperparameter combination
+  fit <- ranger(
+    formula         = normalized_used_price ~ ., 
+    data            = train.df, 
+    num.trees       = n_features * 10,
+    mtry            = hyper_grid$mtry[i],
+    min.node.size   = hyper_grid$min.node.size[i],
+    replace         = hyper_grid$replace[i],
+    sample.fraction = hyper_grid$sample.fraction[i],
+    verbose         = FALSE,
+    seed            = 5420,
+    respect.unordered.factors = 'order',
+  )
+  # export OOB error 
+  hyper_grid$OOB[i] <- sqrt(fit$prediction.error)
+}
+
+hyper_grid.ordered <- hyper_grid %>%
+  arrange(OOB) %>%
+  head(10)
+hyper_grid.ordered
+
+```
+
+\newpage
+```{r}
+## test the best model
+best.RF.model <- ranger(
+    formula         = normalized_used_price ~ ., 
+    data            = train.df, 
+    num.trees       = n_features * 10,
+    mtry            = hyper_grid.ordered[1,1],
+    min.node.size   = hyper_grid.ordered[1,2],
+    replace         = hyper_grid.ordered[1,3],
+    sample.fraction = hyper_grid.ordered[1,4],
+    verbose         = FALSE,
+    seed            = 5420,
+    respect.unordered.factors = 'order',
+  )
+
+# Make predictions on test data
+predictions <- predict(best.RF.model, data = test.df)$predictions
+
+# Compute mean squared error of predictions
+MSE.RF <- mean((test.y - predictions)^2)
+MSE.RF
+
+```
+
+\newpage
+# VII. Result
+```{r}
+df.result <- data.frame(
+  Method = c("Linear","stepwise(both)","Ridge","Lasso","Elastic Net",
+             "Neural Network","Bagging","Random Forest"),
+  MSE = c(mse.lm,mse.both,MSE.ridge,MSE.lasso,MSE.EN,MSE.NN,MSE.bagg,MSE.RF)
+)
+
+# Format the data frame as a table using kable
+kable(df.result, format = "markdown")
+```
